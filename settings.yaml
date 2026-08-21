@@ -1,0 +1,106 @@
+# ============================================================================
+# DeepSeek Harness (DSH) 配置 — 双环境（测试 + 生产）
+# ============================================================================
+# 架构：虚拟化服务器 运行 DSH ←→ 算力服务器(昇腾910B) 运行 vLLM Ascend
+# 该文件挂载到容器内 $DSH_HOME/settings.yaml
+#
+# ⚠️ 使用前必须将 <算力服务器IP> 替换为实际内网 IP
+# ============================================================================
+
+# --- 模型提供方配置 ---
+
+llm-pi-ai:
+  providers:
+
+    # =======================================================================
+    # 测试环境算力服务器（vLLM Ascend）
+    # 已部署模型：
+    #   DeepSeek-R1-Distill-Llama-70B  （推理模型，推荐作为默认 Agent 模型）
+    #   Qwen3-32B                      （通用对话模型）
+    #   Qwen3-VL-30B-A3B-Instruct      （多模态视觉模型）
+    # =======================================================================
+
+    # ---- 测试环境 主模型：DeepSeek-R1-Distill-Llama-70B ----
+    test-ascend-deepseek:
+      apiKeyEnv: ""                            # 昇腾 vLLM 不校验 API Key
+      api: openai-completions                  # vLLM 原生 OpenAI 兼容协议
+      # ⚠️ 测试环境：将 IP 替换为测试算力服务器实际内网 IP
+      baseURL: "http://<测试环境算力服务器IP>:8000/v1"
+      models:
+        - id: DeepSeek-R1-Distill-Llama-70B
+
+    # ---- 测试环境 通用对话模型：Qwen3-32B ----
+    test-ascend-qwen:
+      apiKeyEnv: ""
+      api: openai-completions
+      baseURL: "http://<测试环境算力服务器IP>:8000/v1"
+      models:
+        - id: Qwen3-32B
+
+    # ---- 测试环境 多模态模型：Qwen3-VL ----
+    test-ascend-qwen-vl:
+      apiKeyEnv: ""
+      api: openai-completions
+      baseURL: "http://<测试环境算力服务器IP>:8000/v1"
+      models:
+        - id: Qwen3-VL-30B-A3B-Instruct
+          input: [text, image]                 # 声明支持图片输入
+
+    # =======================================================================
+    # 生产环境算力服务器（vLLM Ascend）
+    # 已部署模型：
+    #   DeepSeek-V4-Flash-w8a8-mtp    （Agent 主模型 — 代码生成、推理、对话）
+    #   Qwen3-VL-30B-A3B-Instruct     （多模态视觉模型）
+    #   PaddleOCR-VL-0.9B             （OCR 文字识别）
+    #   Qwen3-VL-Embedding-8B         （向量嵌入 — 语义检索）
+    #   Qwen3-VL-Reranker-8B          （重排序 — 搜索结果精排）
+    # =======================================================================
+
+    # ---- 生产环境 主模型：DeepSeek-V4-Flash-w8a8-mtp ----
+    prod-ascend-deepseek:
+      apiKeyEnv: ""
+      api: openai-completions
+      # ⚠️ 生产环境：将 IP 替换为生产算力服务器实际内网 IP
+      baseURL: "http://<生产环境算力服务器IP>:8000/v1"
+      models:
+        - id: DeepSeek-V4-Flash-w8a8-mtp
+
+    # ---- 生产环境 多模态模型：Qwen3-VL ----
+    prod-ascend-qwen-vl:
+      apiKeyEnv: ""
+      api: openai-completions
+      baseURL: "http://<生产环境算力服务器IP>:8000/v1"
+      models:
+        - id: Qwen3-VL-30B-A3B-Instruct
+          input: [text, image]
+
+    # ---- 生产环境 OCR 模型：PaddleOCR-VL ----
+    prod-ascend-ocr:
+      apiKeyEnv: ""
+      api: openai-completions
+      baseURL: "http://<生产环境算力服务器IP>:8000/v1"
+      models:
+        - id: PaddleOCR-VL-0.9B
+
+    # ---- 生产环境 嵌入模型：Qwen3-VL-Embedding ----
+    prod-ascend-embedding:
+      apiKeyEnv: ""
+      api: openai-completions
+      baseURL: "http://<生产环境算力服务器IP>:8000/v1"
+      models:
+        - id: Qwen3-VL-Embedding-8B
+
+    # ---- 生产环境 重排序模型：Qwen3-VL-Reranker ----
+    prod-ascend-reranker:
+      apiKeyEnv: ""
+      api: openai-completions
+      baseURL: "http://<生产环境算力服务器IP>:8000/v1"
+      models:
+        - id: Qwen3-VL-Reranker-8B
+
+# --- 默认模型选择（DSH 启动后默认使用此模型） ---
+# 测试环境默认使用 DeepSeek-R1-Distill-Llama-70B
+# 生产环境请改为 prod-ascend-deepseek / DeepSeek-V4-Flash-w8a8-mtp
+agent-default-model:
+  provider: test-ascend-deepseek
+  model: DeepSeek-R1-Distill-Llama-70B

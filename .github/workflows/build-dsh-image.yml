@@ -1,0 +1,63 @@
+# ============================================================================
+# DSH Docker 镜像构建工作流 — GitHub Actions
+# 自动构建基于 Debian glibc 的 DSH 镜像，并导出为可下载的 tar.gz 文件
+# ============================================================================
+# 触发方式：
+#   1. 手动触发：在 GitHub 仓库页面点击 Actions → 选择本工作流 → Run workflow
+#   2. 自动触发：推送到 main 分支
+# ============================================================================
+# 构建产物（Artifact）：
+#   名称: dsh-offline-image
+#   内容: dsh-offline-image.tar.gz（Docker 镜像，约 500MB）
+# ============================================================================
+
+name: Build DSH Docker Image
+
+on:
+  workflow_dispatch:    # 手动触发
+  push:
+    branches: [main]   # 推送到 main 时自动触发
+
+jobs:
+  build:
+    name: Build and Export Docker Image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      # 步骤 1: 检出代码
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 步骤 2: 设置 Docker Buildx
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 步骤 3: 构建 Docker 镜像
+      - name: Build DSH Docker image
+        run: |
+          echo "🏗️  Building DSH Docker image..."
+          echo "    Base image: debian:bookworm-slim"
+          echo "    DSH version: 0.1.0-rc.7"
+          echo ""
+          docker build -t dsh-offline:latest -f Dockerfile.ci .
+          echo ""
+          echo "✅ 镜像构建完成"
+          docker images dsh-offline:latest
+
+      # 步骤 4: 导出镜像为 tar.gz
+      - name: Export image to tar.gz
+        run: |
+          echo "📦 导出镜像..."
+          docker save dsh-offline:latest | gzip > dsh-offline-image.tar.gz
+          echo "✅ 镜像导出完成"
+          ls -lh dsh-offline-image.tar.gz
+
+      # 步骤 5: 上传为构建产物
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-offline-image
+          path: dsh-offline-image.tar.gz
+          retention-days: 7    # 保留 7 天，之后自动删除
+          if-no-files-found: error

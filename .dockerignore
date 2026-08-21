@@ -1,0 +1,12 @@
+node_modules
+.git
+.vscode
+.idea
+*.md
+*.tar.gz
+*.zip
+__pycache__
+*.pyc
+.env
+dist
+lib

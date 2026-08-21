@@ -1,0 +1,45 @@
+version: "3.8"
+
+# ============================================================================
+# DeepSeek Harness (DSH) Docker Compose 配置
+# 架构：虚拟化服务器(Ubuntu 20.04 测试 / RHEL 8.9 生产) 运行 DSH
+#       ←→ 算力服务器(昇腾910B) 运行 vLLM Ascend
+# ============================================================================
+# 使用方式：
+#   1. 确保已有 dsh 镜像（docker load -i dsh-offline.tar.gz）
+#   2. docker compose up -d
+#   3. 访问 http://虚拟化服务器IP:3080
+#   4. 在设置中配置算力服务器的 vLLM Ascend API 地址
+# ============================================================================
+# 注意：
+#   - 使用 host 网络模式（因为 Docker 可能以 --iptables=false 启动，-p 无法生效）
+#   - DSH 只允许绑定 127.0.0.1，通过 Node.js TCP 转发到 0.0.0.0
+#   - docker-entrypoint.sh 必须挂载覆盖镜像里的旧版（旧版没有 Node.js 转发代码）
+#   - 运行前确保 docker-entrypoint.sh 有可执行权限: chmod +x docker-entrypoint.sh
+# ============================================================================
+
+services:
+  dsh:
+    image: dsh-offline:latest
+    container_name: dsh
+    restart: unless-stopped
+    network_mode: "host"                # 使用 host 网络模式，绕开 iptables 问题
+    volumes:
+      # 工作区目录（存放代码、项目文件）
+      - ./workspace:/workspace
+      # DSH 配置和会话持久化
+      - ./dsh-home:/root/.dsh
+      # 覆盖镜像中的 entrypoint 脚本（关键修复！旧版镜像没有 Node.js 转发代码）
+      - ./docker-entrypoint.sh:/usr/local/bin/docker-entrypoint.sh
+      # 如已编辑 settings.yaml，取消下行注释即可覆盖
+      # - ./settings.yaml:/root/.dsh/settings.yaml
+    environment:
+      # DSH 只允许绑定 127.0.0.1，Node.js 会转发到 0.0.0.0
+      - DSH_ARGS=--host 127.0.0.1 --port 3080
+    # 资源限制（DSH 本身消耗不大，可根据实际情况调整）
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
