@@ -1,63 +1,165 @@
 # ============================================================================
 # DSH Docker 镜像构建工作流 — GitHub Actions
-# 自动构建基于 Debian glibc 的 DSH 镜像，并导出为可下载的 tar.gz 文件
+# 自动构建基于 Debian glibc 的 DSH 镜像，导出为 tar.gz 并发布为 Release
 # ============================================================================
 # 触发方式：
 #   1. 手动触发：在 GitHub 仓库页面点击 Actions → 选择本工作流 → Run workflow
-#   2. 自动触发：推送到 main 分支
+#   2. 自动触发：推送到 dsh-deploy 分支
 # ============================================================================
-# 构建产物（Artifact）：
-#   名称: dsh-offline-image
-#   内容: dsh-offline-image.tar.gz（Docker 镜像，约 500MB）
+# 构建产物：
+#   1. Artifact: dsh-offline-image.tar.gz（临时下载，保留 90 天）
+#   2. Release:  dsh-offline-image.tar.gz（永久下载，附带部署脚本）
 # ============================================================================
 
 name: Build DSH Docker Image
 
 on:
-  workflow_dispatch:    # 手动触发
+  workflow_dispatch:           # 手动触发
+    inputs:
+      create_release:
+        description: '创建 GitHub Release（永久下载）'
+        type: boolean
+        default: true
   push:
-    branches: [main]   # 推送到 main 时自动触发
+    branches: [dsh-deploy]    # 推送到 dsh-deploy 时自动触发
+
+env:
+  IMAGE_NAME: dsh-offline
+  IMAGE_TAG: latest
+  DSH_VERSION: 0.1.0-rc.7
 
 jobs:
   build:
     name: Build and Export Docker Image
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    permissions:
+      contents: write    # 创建 Release 需要写权限
 
     steps:
       # 步骤 1: 检出代码
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 步骤 2: 设置 Docker Buildx
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      # 步骤 3: 构建 Docker 镜像
+      # 步骤 2: 构建 Docker 镜像
       - name: Build DSH Docker image
         run: |
           echo "🏗️  Building DSH Docker image..."
           echo "    Base image: debian:bookworm-slim"
-          echo "    DSH version: 0.1.0-rc.7"
+          echo "    DSH version: ${{ env.DSH_VERSION }}"
           echo ""
-          docker build -t dsh-offline:latest -f Dockerfile.ci .
+          docker build -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} -f Dockerfile.ci .
           echo ""
           echo "✅ 镜像构建完成"
-          docker images dsh-offline:latest
+          docker images ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
 
-      # 步骤 4: 导出镜像为 tar.gz
+      # 步骤 3: 导出镜像为 tar.gz
       - name: Export image to tar.gz
         run: |
           echo "📦 导出镜像..."
-          docker save dsh-offline:latest | gzip > dsh-offline-image.tar.gz
+          docker save ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} | gzip > dsh-offline-image.tar.gz
           echo "✅ 镜像导出完成"
           ls -lh dsh-offline-image.tar.gz
 
-      # 步骤 5: 上传为构建产物
-      - name: Upload artifact
+      # 步骤 4: 打包部署脚本
+      - name: Pack deployment scripts
+        run: |
+          echo "📦 打包部署脚本..."
+          mkdir -p dsh-deploy-pack/scripts dsh-deploy-pack/intranet-tools
+          # 复制根目录部署文件
+          cp Dockerfile deploy.sh docker-compose.yml docker-entrypoint.sh settings.yaml \
+             build-dsh-image.sh pack-and-send.sh prepare-docker-offline.sh \
+             .dockerignore README.md dsh-deploy-pack/scripts/ 2>/dev/null || true
+          # 复制 intranet-tools
+          cp -r intranet-tools/* dsh-deploy-pack/intranet-tools/ 2>/dev/null || true
+          # 创建部署说明
+          cat > dsh-deploy-pack/快速开始.md << 'GUIDE'
+          # DSH 部署快速开始
+
+          ## 文件说明
+          - `dsh-offline-image.tar.gz` — Docker 镜像（用 docker load 加载）
+          - `scripts/` — 部署脚本和配置文件
+          - `intranet-tools/` — 内网工具栈配置
+
+          ## 部署步骤
+          1. 加载镜像: `docker load -i dsh-offline-image.tar.gz`
+          2. 进入脚本目录: `cd scripts`
+          3. 执行部署: `bash deploy.sh`
+          4. 访问: http://服务器IP:3080
+
+          ## 详细文档
+          请参阅 `scripts/README.md`
+          GUIDE
+          # 打包
+          cd dsh-deploy-pack && zip -r ../dsh-deploy-pack.zip . && cd ..
+          ls -lh dsh-deploy-pack.zip
+
+      # 步骤 5: 上传镜像为 Artifact（临时下载）
+      - name: Upload image artifact
         uses: actions/upload-artifact@v4
         with:
           name: dsh-offline-image
           path: dsh-offline-image.tar.gz
-          retention-days: 7    # 保留 7 天，之后自动删除
+          retention-days: 90
           if-no-files-found: error
+
+      # 步骤 6: 上传部署脚本为 Artifact
+      - name: Upload deployment scripts artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-deploy-pack
+          path: dsh-deploy-pack.zip
+          retention-days: 90
+          if-no-files-found: error
+
+      # 步骤 7: 创建 GitHub Release（永久下载）
+      - name: Create GitHub Release with image
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+        run: |
+          TAG_NAME="dsh-v${{ env.DSH_VERSION }}-$(date +%Y%m%d-%H%M%S)"
+          echo "🏷️  创建 Release: $TAG_NAME"
+
+          # 创建 Release
+          RESPONSE=$(curl -s -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"tag_name\": \"$TAG_NAME\",
+              \"target_commitish\": \"${{ github.sha }}\",
+              \"name\": \"DSH ${{ env.DSH_VERSION }} 离线部署包\",
+              \"body\": \"## DSH 离线部署包 v${{ env.DSH_VERSION }}\\n\\n### 包含内容\\n- \\`dsh-offline-image.tar.gz\\\` — Docker 镜像（约 500MB）\\n- \\`dsh-deploy-pack.zip\\\` — 完整部署脚本\\n\\n### 部署步骤\\n1. 下载两个文件\\n2. \\`docker load -i dsh-offline-image.tar.gz\\`\\n3. 解压脚本: \\`unzip dsh-deploy-pack.zip\\`\\n4. \\`cd scripts && bash deploy.sh\\`\\n5. 访问 http://服务器IP:3080\\n\\n### 详细文档\\n见 dsh-deploy-pack.zip 中的 README.md\",
+              \"draft\": false,
+              \"prerelease\": false
+            }" \
+            "https://api.github.com/repos/${{ github.repository }}/releases")
+
+          UPLOAD_URL=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('upload_url','').replace('{?name,label}',''))" 2>/dev/null)
+          RELEASE_ID=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+
+          if [ -z "$UPLOAD_URL" ] || [ -z "$RELEASE_ID" ]; then
+            echo "❌ 创建 Release 失败"
+            echo "$RESPONSE" | head -20
+            exit 1
+          fi
+          echo "✅ Release 创建成功, ID: $RELEASE_ID"
+
+          # 上传镜像
+          echo "📤 上传 Docker 镜像到 Release..."
+          curl -s -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/gzip" \
+            --data-binary @dsh-offline-image.tar.gz \
+            "${UPLOAD_URL}?name=dsh-offline-image.tar.gz" \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'  ✅ {d.get(\"name\",\"?\")} ({d.get(\"size\",0)/1024/1024:.1f} MB)')"
+
+          # 上传部署脚本包
+          echo "📤 上传部署脚本包到 Release..."
+          curl -s -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/zip" \
+            --data-binary @dsh-deploy-pack.zip \
+            "${UPLOAD_URL}?name=dsh-deploy-pack.zip" \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'  ✅ {d.get(\"name\",\"?\")} ({d.get(\"size\",0)/1024:.1f} KB)')"
+
+          echo ""
+          echo "🎉 完成！Release 地址: https://github.com/${{ github.repository }}/releases/tag/$TAG_NAME"
