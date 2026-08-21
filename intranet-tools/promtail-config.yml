@@ -9,6 +9,7 @@ clients:
   - url: http://loki:3100/loki/api/v1/push
 
 scrape_configs:
+  # 采集 Docker 容器日志
   - job_name: docker
     docker_sd_configs:
       - host: unix:///var/run/docker.sock
@@ -19,6 +20,7 @@ scrape_configs:
       - source_labels: ['__meta_docker_container_log_stream']
         target_label: stream
 
+  # 采集系统日志
   - job_name: system
     static_configs:
       - targets:

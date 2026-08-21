@@ -71,8 +71,8 @@ gzip intranet-tools-images.tar
 将以下文件通过 U 盘拷贝到内网服务器：
 - `docker-compose.tools.yml`
 - `intranet-tools-images.tar.gz`
-- `prometheus.yml`
-- `promtail-config.yml`
+- `prometheus.yml`（见下方配置）
+- `promtail-config.yml`（见下方配置）
 
 ### 第三步：内网加载镜像
 
@@ -90,9 +90,50 @@ docker images | grep -E 'portainer|gitea|grafana|prometheus|node-exporter|cadvis
 # 创建数据目录
 mkdir -p data/{portainer,gitea,grafana,prometheus/config,prometheus/data,loki,promtail,npm,npm-letsencrypt}
 
-# 复制配置文件
-cp prometheus.yml data/prometheus/config/
-cp promtail-config.yml data/promtail/config.yml
+# 创建 Prometheus 配置
+cat > data/prometheus/config/prometheus.yml << 'EOF'
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # 采集自身指标
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # 采集主机资源指标
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # 采集 Docker 容器指标
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+EOF
+
+# 创建 Promtail 配置
+cat > data/promtail/config.yml << 'EOF'
+server:
+  http_listen_port: 9080
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # 采集容器日志
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_name']
+        target_label: container
+EOF
 ```
 
 ### 第五步：启动所有工具
@@ -113,7 +154,7 @@ docker compose -f docker-compose.tools.yml logs -f
 #### Portainer
 1. 访问 `http://<服务器IP>:9443`
 2. 创建管理员账户
-3. 选择 Get Started 连接本地 Docker
+3. 选择 "Get Started" 连接本地 Docker
 
 #### Gitea
 1. 访问 `http://<服务器IP>:3000`
@@ -127,7 +168,7 @@ docker compose -f docker-compose.tools.yml logs -f
 3. 添加数据源：
    - Prometheus: URL 填 `http://prometheus:9090`
    - Loki: URL 填 `http://loki:3100`
-4. 导入 Dashboard（Dashboards -> Import）：
+4. 导入 Dashboard：
    - Node Exporter Full: ID `1860`
    - Docker Monitoring: ID `193`
 
@@ -141,9 +182,9 @@ docker compose -f docker-compose.tools.yml logs -f
 ## 端口冲突注意
 
 如果 DSH 也部署在同一台服务器上：
-- DSH 使用 `3080` 端口 — 不冲突
-- Gitea 使用 `3000` 端口
-- Grafana 映射到 `3001` 避免冲突
+- DSH 使用 `3080` 端口 — **不冲突**
+- Gitea 默认使用 `3000` 端口 — 已映射到 `3000`
+- Grafana 默认使用 `3000` 端口 — 已映射到 `3001` 避免冲突
 
 如果端口仍冲突，修改 `docker-compose.tools.yml` 中的端口映射。
 
@@ -163,6 +204,10 @@ docker compose -f docker-compose.tools.yml restart grafana
 
 # 查看某个工具日志
 docker compose -f docker-compose.tools.yml logs -f prometheus
+
+# 更新某个工具（需在有网电脑上拉取新镜像）
+docker compose -f docker-compose.tools.yml pull grafana
+docker compose -f docker-compose.tools.yml up -d grafana
 
 # 查看资源占用
 docker stats portainer gitea grafana prometheus loki

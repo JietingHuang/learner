@@ -6,17 +6,16 @@ version: "3.8"
 # 适用于完全隔离的内网环境，所有工具通过 Docker 部署
 # 使用方式：
 #   1. 提前在有网电脑拉取镜像：docker compose -f docker-compose.tools.yml pull
-#   2. 导出镜像：docker save -o intranet-tools-images.tar \
-#        portainer/portainer-ce:latest gitea/gitea:latest grafana/grafana:latest \
-#        prom/prometheus:latest prom/node-exporter:latest \
-#        gcr.io/cadvisor/cadvisor:latest grafana/loki:latest \
-#        grafana/promtail:latest jc21/nginx-proxy-manager:latest
+#   2. 导出镜像：docker save $(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E 'portainer|gitea|grafana|prometheus|node-exporter|loki|promtail|nginx-proxy|drone') -o intranet-tools-images.tar
 #   3. 内网加载：docker load -i intranet-tools-images.tar
 #   4. 启动：docker compose -f docker-compose.tools.yml up -d
 # ============================================================================
 
 services:
+  # ===========================================================================
   # 1. Portainer — Docker 容器可视化管理面板
+  # 端口: 9443 (HTTPS) / 9000 (HTTP)
+  # ===========================================================================
   portainer:
     image: portainer/portainer-ce:latest
     container_name: portainer
@@ -30,7 +29,10 @@ services:
     networks:
       - intranet-tools
 
+  # ===========================================================================
   # 2. Gitea — 轻量级 Git 代码托管
+  # 端口: 3000 (Web) / 2222 (SSH)
+  # ===========================================================================
   gitea:
     image: gitea/gitea:latest
     container_name: gitea
@@ -38,6 +40,8 @@ services:
     environment:
       - USER_UID=1000
       - USER_GID=1000
+      - GITEA__server__DOMAIN=<GITEA_DOMAIN>
+      - GITEA__server__ROOT_URL=http://<GITEA_DOMAIN>:3000
     ports:
       - "3000:3000"
       - "2222:22"
@@ -48,7 +52,10 @@ services:
     networks:
       - intranet-tools
 
+  # ===========================================================================
   # 3. Grafana — 监控可视化面板
+  # 端口: 3001 (避免与 Gitea 冲突)
+  # ===========================================================================
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
@@ -58,6 +65,7 @@ services:
     volumes:
       - ./data/grafana:/var/lib/grafana
     environment:
+      - GF_SECURITY_ADMIN_PASSWORD=<GRAFANA_ADMIN_PASSWORD>
       - GF_USERS_ALLOW_SIGN_UP=false
     networks:
       - intranet-tools
@@ -65,7 +73,10 @@ services:
       - prometheus
       - loki
 
+  # ===========================================================================
   # 4. Prometheus — 指标采集与存储
+  # 端口: 9090
+  # ===========================================================================
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
@@ -82,7 +93,10 @@ services:
     networks:
       - intranet-tools
 
+  # ===========================================================================
   # 5. Node Exporter — 主机资源指标采集
+  # 端口: 9100
+  # ===========================================================================
   node-exporter:
     image: prom/node-exporter:latest
     container_name: node-exporter
@@ -101,7 +115,10 @@ services:
     networks:
       - intranet-tools
 
+  # ===========================================================================
   # 6. cAdvisor — Docker 容器指标采集
+  # 端口: 8080
+  # ===========================================================================
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest
     container_name: cadvisor
@@ -117,7 +134,10 @@ services:
     networks:
       - intranet-tools
 
-  # 7. Loki — 轻量级日志存储
+  # ===========================================================================
+  # 7. Loki — 日志存储
+  # 端口: 3100
+  # ===========================================================================
   loki:
     image: grafana/loki:latest
     container_name: loki
@@ -130,7 +150,9 @@ services:
     networks:
       - intranet-tools
 
-  # 8. Promtail — 日志采集代理
+  # ===========================================================================
+  # 8. Promtail — 日志采集
+  # ===========================================================================
   promtail:
     image: grafana/promtail:latest
     container_name: promtail
@@ -143,7 +165,10 @@ services:
     networks:
       - intranet-tools
 
+  # ===========================================================================
   # 9. Nginx Proxy Manager — 反向代理管理
+  # 端口: 80/81/443
+  # ===========================================================================
   nginx-proxy-manager:
     image: jc21/nginx-proxy-manager:latest
     container_name: nginx-proxy-manager
