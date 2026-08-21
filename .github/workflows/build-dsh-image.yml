@@ -115,51 +115,43 @@ jobs:
       # 步骤 7: 创建 GitHub Release（永久下载）
       - name: Create GitHub Release with image
         if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG_NAME="dsh-v${{ env.DSH_VERSION }}-$(date +%Y%m%d-%H%M%S)"
           echo "🏷️  创建 Release: $TAG_NAME"
 
-          # 创建 Release
-          RESPONSE=$(curl -s -X POST \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"tag_name\": \"$TAG_NAME\",
-              \"target_commitish\": \"${{ github.sha }}\",
-              \"name\": \"DSH ${{ env.DSH_VERSION }} 离线部署包\",
-              \"body\": \"## DSH 离线部署包 v${{ env.DSH_VERSION }}\\n\\n### 包含内容\\n- \\`dsh-offline-image.tar.gz\\\` — Docker 镜像（约 500MB）\\n- \\`dsh-deploy-pack.zip\\\` — 完整部署脚本\\n\\n### 部署步骤\\n1. 下载两个文件\\n2. \\`docker load -i dsh-offline-image.tar.gz\\`\\n3. 解压脚本: \\`unzip dsh-deploy-pack.zip\\`\\n4. \\`cd scripts && bash deploy.sh\\`\\n5. 访问 http://服务器IP:3080\\n\\n### 详细文档\\n见 dsh-deploy-pack.zip 中的 README.md\",
-              \"draft\": false,
-              \"prerelease\": false
-            }" \
-            "https://api.github.com/repos/${{ github.repository }}/releases")
+          # 用 gh CLI 创建 Release（避免 JSON 转义问题）
+          gh release create "$TAG_NAME" \
+            --target "${{ github.sha }}" \
+            --title "DSH ${{ env.DSH_VERSION }} 离线部署包" \
+            --notes "## DSH 离线部署包 v${{ env.DSH_VERSION }}
 
-          UPLOAD_URL=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('upload_url','').replace('{?name,label}',''))" 2>/dev/null)
-          RELEASE_ID=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+          ### 包含内容
+          - dsh-offline-image.tar.gz — Docker 镜像（约 500MB）
+          - dsh-deploy-pack.zip — 完整部署脚本
 
-          if [ -z "$UPLOAD_URL" ] || [ -z "$RELEASE_ID" ]; then
-            echo "❌ 创建 Release 失败"
-            echo "$RESPONSE" | head -20
-            exit 1
-          fi
-          echo "✅ Release 创建成功, ID: $RELEASE_ID"
+          ### 部署步骤
+          1. 下载两个文件
+          2. docker load -i dsh-offline-image.tar.gz
+          3. 解压脚本: unzip dsh-deploy-pack.zip
+          4. cd scripts && bash deploy.sh
+          5. 访问 http://服务器IP:3080
+
+          ### 详细文档
+          见 dsh-deploy-pack.zip 中的 README.md"
+
+          echo "✅ Release 创建成功"
 
           # 上传镜像
           echo "📤 上传 Docker 镜像到 Release..."
-          curl -s -X POST \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Content-Type: application/gzip" \
-            --data-binary @dsh-offline-image.tar.gz \
-            "${UPLOAD_URL}?name=dsh-offline-image.tar.gz" \
-            | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'  ✅ {d.get(\"name\",\"?\")} ({d.get(\"size\",0)/1024/1024:.1f} MB)')"
+          gh release upload "$TAG_NAME" dsh-offline-image.tar.gz --repo ${{ github.repository }}
+          echo "  ✅ 镜像上传完成"
 
           # 上传部署脚本包
           echo "📤 上传部署脚本包到 Release..."
-          curl -s -X POST \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Content-Type: application/zip" \
-            --data-binary @dsh-deploy-pack.zip \
-            "${UPLOAD_URL}?name=dsh-deploy-pack.zip" \
-            | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'  ✅ {d.get(\"name\",\"?\")} ({d.get(\"size\",0)/1024:.1f} KB)')"
+          gh release upload "$TAG_NAME" dsh-deploy-pack.zip --repo ${{ github.repository }}
+          echo "  ✅ 脚本包上传完成"
 
           echo ""
           echo "🎉 完成！Release 地址: https://github.com/${{ github.repository }}/releases/tag/$TAG_NAME"
