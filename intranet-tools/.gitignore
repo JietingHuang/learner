@@ -1,0 +1,11 @@
+# 内网工具数据目录（不提交到 Git）
+data/
+*.tar
+*.tar.gz
+*.tar.xz
+*.tgz
+*.zip
+.env
+*.key
+*.pem
+*.crt

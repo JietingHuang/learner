@@ -1,0 +1,163 @@
+version: "3.8"
+
+# ============================================================================
+# 内网实用工具栈 — Docker Compose 配置
+# ============================================================================
+# 适用于完全隔离的内网环境，所有工具通过 Docker 部署
+# 使用方式：
+#   1. 提前在有网电脑拉取镜像：docker compose -f docker-compose.tools.yml pull
+#   2. 导出镜像：docker save -o intranet-tools-images.tar \
+#        portainer/portainer-ce:latest gitea/gitea:latest grafana/grafana:latest \
+#        prom/prometheus:latest prom/node-exporter:latest \
+#        gcr.io/cadvisor/cadvisor:latest grafana/loki:latest \
+#        grafana/promtail:latest jc21/nginx-proxy-manager:latest
+#   3. 内网加载：docker load -i intranet-tools-images.tar
+#   4. 启动：docker compose -f docker-compose.tools.yml up -d
+# ============================================================================
+
+services:
+  # 1. Portainer — Docker 容器可视化管理面板
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    restart: unless-stopped
+    ports:
+      - "9443:9443"
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/portainer:/data
+    networks:
+      - intranet-tools
+
+  # 2. Gitea — 轻量级 Git 代码托管
+  gitea:
+    image: gitea/gitea:latest
+    container_name: gitea
+    restart: unless-stopped
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+    ports:
+      - "3000:3000"
+      - "2222:22"
+    volumes:
+      - ./data/gitea:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      - intranet-tools
+
+  # 3. Grafana — 监控可视化面板
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+    environment:
+      - GF_USERS_ALLOW_SIGN_UP=false
+    networks:
+      - intranet-tools
+    depends_on:
+      - prometheus
+      - loki
+
+  # 4. Prometheus — 指标采集与存储
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./data/prometheus/config:/etc/prometheus
+      - ./data/prometheus/data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+    networks:
+      - intranet-tools
+
+  # 5. Node Exporter — 主机资源指标采集
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    restart: unless-stopped
+    pid: host
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+    networks:
+      - intranet-tools
+
+  # 6. cAdvisor — Docker 容器指标采集
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - intranet-tools
+
+  # 7. Loki — 轻量级日志存储
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./data/loki:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - intranet-tools
+
+  # 8. Promtail — 日志采集代理
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail
+    restart: unless-stopped
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./data/promtail/config.yml:/etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - intranet-tools
+
+  # 9. Nginx Proxy Manager — 反向代理管理
+  nginx-proxy-manager:
+    image: jc21/nginx-proxy-manager:latest
+    container_name: nginx-proxy-manager
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "81:81"
+      - "443:443"
+    volumes:
+      - ./data/npm:/data
+      - ./data/npm-letsencrypt:/etc/letsencrypt
+    networks:
+      - intranet-tools
+
+networks:
+  intranet-tools:
+    driver: bridge
