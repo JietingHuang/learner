@@ -53,7 +53,7 @@ RUN mkdir -p /tmp/dsh && \
     cd /app && \
     npm install -g . --include=optional && \
     npm cache clean --force && \
-    node -e "require('sharp'); console.log('✅ sharp 原生模块加载正常')"
+    node -e "require('/usr/lib/node_modules/@deepseek-ai/dsh/node_modules/sharp'); console.log('✅ sharp 原生模块加载正常')"
 
 # 复制配置文件
 COPY settings.yaml /root/.dsh/settings.yaml
