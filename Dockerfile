@@ -50,6 +50,7 @@ RUN mkdir -p /tmp/dsh && \
     rm -rf /tmp/dsh /tmp/deepseek-ai-dsh-0.1.0-rc.7.tgz && \
     cd /app && \
     npm install -g . && \
+    npm rebuild sharp && \
     npm cache clean --force
 
 # 复制配置文件

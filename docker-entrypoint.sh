@@ -20,14 +20,47 @@ if [ "$1" = "web" ]; then
     echo ""
 
     # 启动 DSH（必须绑定 127.0.0.1，DSH 安全策略限制）
+    # 先启动 DSH，让它绑定 127.0.0.1:PORT
     dsh web $DSH_ARGS &
     DSH_PID=$!
 
-    # 等待 DSH 就绪
-    sleep 2
+    # 等待 DSH Web UI 真正就绪（轮询 127.0.0.1:PORT，最多等 30 秒）
+    echo "⏳ 等待 DSH Web UI 就绪..."
+    WAIT_READY=$(node -e "
+    const PORT = ${PORT};
+    function check() {
+        return new Promise((resolve) => {
+            const net = require('net');
+            const c = net.createConnection({ host: '127.0.0.1', port: PORT }, () => {
+                c.end();
+                resolve(true);
+            });
+            c.on('error', () => resolve(false));
+            c.setTimeout(2000, () => { c.destroy(); resolve(false); });
+        });
+    }
+    (async () => {
+        for (let i = 0; i < 30; i++) {
+            if (await check()) {
+                process.stdout.write('ready');
+                process.exit(0);
+            }
+            await new Promise(r => setTimeout(r, 1000));
+        }
+        process.exit(1);
+    })();
+    ")
+
+    if [ "$WAIT_READY" != "ready" ]; then
+        echo "❌ 错误: DSH Web UI 未能在 30 秒内启动"
+        exit 1
+    fi
+    echo "✅ DSH Web UI 已就绪 (127.0.0.1:${PORT})"
+    echo ""
 
     # 使用 Node.js 做 TCP 端口转发（不需要额外安装任何包，Node.js 已内置）
     # 监听 0.0.0.0，将 TCP 连接转发到 127.0.0.1
+    # 注意：此时 DSH 已经绑定了 127.0.0.1:PORT，所以转发器不会冲突
     echo "🔗 启动端口转发 (0.0.0.0:${PORT} → 127.0.0.1:${PORT})..."
     node -e "
     const net = require('net');
