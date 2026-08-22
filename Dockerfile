@@ -42,6 +42,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # 复制 DSH 包并安装
+# --include=optional 是关键：sharp 的预编译二进制 @img/sharp-linux-x64 是 optional 依赖
+# 不加这个参数，npm 不会下载它，sharp 启动时会崩溃
 COPY deepseek-ai-dsh-0.1.0-rc.7.tgz /tmp/
 RUN mkdir -p /tmp/dsh && \
     tar -xzf /tmp/deepseek-ai-dsh-0.1.0-rc.7.tgz -C /tmp/dsh && \
@@ -49,9 +51,9 @@ RUN mkdir -p /tmp/dsh && \
     cp -r /tmp/dsh/package/* /app/ && \
     rm -rf /tmp/dsh /tmp/deepseek-ai-dsh-0.1.0-rc.7.tgz && \
     cd /app && \
-    npm install -g . && \
-    npm rebuild sharp && \
-    npm cache clean --force
+    npm install -g . --include=optional && \
+    npm cache clean --force && \
+    node -e "require('sharp'); console.log('✅ sharp 原生模块加载正常')"
 
 # 复制配置文件
 COPY settings.yaml /root/.dsh/settings.yaml
